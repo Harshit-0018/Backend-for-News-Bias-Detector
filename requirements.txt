@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+transformers
+torch
+spacy
+textblob
+beautifulsoup4
+requests
+pydantic
