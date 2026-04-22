@@ -1,10 +1,9 @@
+import os
+import re
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment"
-
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+MODEL_PATH = os.path.join("app", "models", "bias_model")
 
 LABEL_MAP = {
     0: "Left",
@@ -12,30 +11,28 @@ LABEL_MAP = {
     2: "Right"
 }
 
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+
+model.eval()
+
 
 def extract_important_phrases(text: str):
-    keywords = [
-        "government",
-        "president",
-        "congress",
-        "election",
-        "policy",
-        "democrat",
-        "republican",
-        "media"
-    ]
+    raw_sentences = re.split(r'[.!?]', text)
 
     phrases = []
 
-    for sentence in text.split("."):
-        for keyword in keywords:
-            if keyword.lower() in sentence.lower():
-                cleaned = sentence.strip()
+    for sentence in raw_sentences:
+        cleaned = sentence.strip()
 
-                if cleaned and cleaned not in phrases:
-                    phrases.append(cleaned)
+        cleaned = re.sub(r'\|+', ' ', cleaned)
+        cleaned = re.sub(r'\s+', ' ', cleaned)
 
-                break
+        if len(cleaned) < 30:
+            continue
+
+        if cleaned not in phrases:
+            phrases.append(cleaned)
 
     return phrases[:5]
 
@@ -46,16 +43,21 @@ def predict_bias(text: str):
         return_tensors="pt",
         truncation=True,
         padding=True,
-        max_length=512
+        max_length=256
     )
 
     with torch.no_grad():
         outputs = model(**inputs)
 
-    probs = torch.softmax(outputs.logits, dim=1)
-    prediction = torch.argmax(probs, dim=1).item()
-    confidence = probs[0][prediction].item()
+    probabilities = torch.softmax(outputs.logits, dim=1)
 
-    bias = LABEL_MAP.get(prediction, "Center")
+    prediction = torch.argmax(probabilities, dim=1).item()
+    confidence = probabilities[0][prediction].item()
 
-    return bias, round(confidence, 4), extract_important_phrases(text)
+    important_phrases = extract_important_phrases(text)
+
+    return (
+        LABEL_MAP[prediction],
+        round(confidence, 4),
+        important_phrases
+    )
